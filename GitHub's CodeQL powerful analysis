@@ -1,0 +1,41 @@
+I was unable to find specific documentation for Firebase ownership and role management in the search results. The information I found primarily covers GitHub's CodeQL tool, which is a different service.
+
+To help you with your question, here is a general guide based on common practices for managing ownership in Google Cloud services like Firebase.
+
+### 👑 Understanding the Owner Role in Firebase
+
+In Firebase, which is part of the Google Cloud Platform, the highest level of control for a project is the **Owner role**. If you created the Firebase project, you are automatically assigned this role.
+
+As an Owner, you have comprehensive permissions, including all the abilities of an Editor and a Viewer, plus exclusive rights to perform critical administrative tasks:
+-   **Manage User Access**: You can assign or remove roles for other project members.
+-   **Control Billing**: You are responsible for setting up and managing the project's billing account.
+-   **Delete Projects**: Only Owners can permanently delete a Firebase project.
+
+### 🔐 How Roles and Permissions Work
+
+Access to Firebase projects is governed by Google Cloud's Identity and Access Management (IAM) system. Permissions are bundled into roles, which are then assigned to members (users, groups, or service accounts).
+
+| Role | Key Permissions |
+| :--- | :--- |
+| **Owner** (`roles/owner`) | Full access, including managing roles/permissions, billing, and deleting the project. |
+| **Editor** (`roles/editor`) | Can view and modify all project resources (e.g., update data, deploy apps), but cannot manage user roles or billing. |
+| **Viewer** (`roles/viewer`) | Read-only access; can view project resources and data but cannot make any changes. |
+
+Beyond these basic roles, Firebase also offers more granular **predefined roles** (like `Firebase Admin` or product-specific roles for Authentication or Firestore) for precise access control.
+
+### 🛠️ Managing Project Ownership
+
+As an Owner, you can manage who else has access to your project directly from the Firebase console.
+
+-   **To add a new Owner**: Go to your **Project settings** > **Users and permissions** (or **IAM** in the Google Cloud Console). Click "Add member," enter the user's email address, select the **Owner** role, and send the invitation.
+-   **To transfer a project**: You can effectively transfer a project by adding the new person's email as an Owner. Once they accept the role, they will have full control.
+
+If a project loses all its Owners, you may need to contact **Google Cloud Support** for help regaining access.
+
+### 🔍 Where to Find Official Information
+
+For the most accurate and detailed instructions, please consult the official Firebase documentation. You can find it by:
+-   Searching for "Firebase project ownership" or "Manage user roles in Firebase" in your preferred search engine.
+-   Visiting the official Firebase help documentation on the Google website.
+
+I hope this general overview helps you get started. If you manage to locate the specific official documentation and have questions about a particular section, feel free to ask for further clarification.
