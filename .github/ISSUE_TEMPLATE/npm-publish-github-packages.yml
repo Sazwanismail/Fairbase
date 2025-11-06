@@ -1,0 +1,695 @@
+I've found several reliable templates and examples for creating a GitHub Actions workflow to publish your package. Here is a synthesis of the best approaches.
+
+### 🚀 Workflow Examples for GitHub Packages
+
+You can create a new file in your repository at `.github/workflows/npm-publish-github-packages.yml` and use the following template:
+
+```yaml
+name: Publish Package to GitHub Packages
+
+on:
+  release:
+    types: [published] # Triggers when a new release is published
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Gives the GITHUB_TOKEN permission to upload to GitHub Packages
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x' # Specifies Node.js version
+          registry-url: 'https://npm.pkg.github.com/'
+          scope: '@YOUR-GITHUB-USERNAME' # Sets the npm scope for your package
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests (Optional)
+        run: npm test
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Uses the automatically provided token
+```
+
+### ⚙️ Key Configuration Steps
+
+For the workflow to function correctly, you need to configure your project properly:
+
+1.  **Configure `package.json`**: Your `package.json` file must be set up correctly.
+    ```json
+    {
+      "name": "@your-github-username/your-package-name",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/your-github-username/your-repo.git"
+      },
+      "publishConfig": {
+        "registry": "https://npm.pkg.github.com/"
+      }
+    }
+    ```
+
+2.  **Authentication**: The workflow uses the automatically provided `GITHUB_TOKEN`. Ensure the job has `packages: write` permission.
+
+### 🔁 Alternative: Publish on Push to a Branch
+
+If you prefer to publish when code is pushed to a specific branch (like `main`), you can modify the trigger event:
+
+```yaml
+on:
+  push:
+    branches:
+      - main # Change this to your desired branch
+```
+
+### 🤔 Alternative: Publishing to the Public npm Registry
+
+If your goal is to publish to the public npm registry instead of GitHub Packages, the configuration is different. Here is a proven workflow:
+
+```yaml
+name: Publish Package to npmjs
+on:
+  release:
+    types: [published]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} # Requires creating an npm token
+```
+
+For this npm workflow, you need to:
+1.  Create an **Automation-type token** on npmjs.com.
+2.  Add this token as a secret named `NPM_TOKEN` in your GitHub repository settings (`Settings` > `Secrets and variables` > `Actions`).
+
+I hope these templates help you set up your automated publishing pipeline. If you need further clarification on any of these steps, or if you are unsure whether to use GitHub Packages or the public npm registry, please feel free to ask. 
+# Complete npm Publish & GitHub Packages Workflow Guide
+
+## 🚀 **Advanced npm Publish GitHub Actions Workflows**
+
+### **Multi-Strategy Publishing Workflow**
+
+```yaml
+# .github/workflows/npm-publish-github-packages.yml
+name: Publish Package to npm and GitHub Packages
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  release:
+    types: [published]
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      publish-type:
+        description: 'Publish destination'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - npm
+        - github
+        - both
+        - dry-run
+
+env:
+  NODE_VERSION: '20.x'
+  REGISTRY_NPM: 'https://registry.npmjs.org'
+  REGISTRY_GITHUB: 'https://npm.pkg.github.com'
+
+jobs:
+  # Quality checks before publishing
+  quality-check:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    if: github.event_name != 'release'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests
+      run: npm test
+      
+    - name: Run linting
+      run: npm run lint
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Run type check (if available)
+      run: npm run type-check || true
+      
+    - name: Package size check
+      uses: preactjs/compressed-size-action@v2
+      with:
+        pattern: 'dist/**/*.{js,css,json}'
+        
+  # Version validation and tag checking
+  version-check:
+    name: Version Validation
+    runs-on: ubuntu-latest
+    needs: quality-check
+    if: contains(github.ref, 'refs/tags/v')
+    
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      is-prerelease: ${{ steps.check_prerelease.outputs.is_prerelease }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Get package version
+      id: get_version
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+    - name: Check if prerelease
+      id: check_prerelease
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        if [[ $VERSION =~ - ]]; then
+          echo "is-prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "is-prerelease=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Validate version matches tag
+      run: |
+        PACKAGE_VERSION=$(node -p "require('./package.json').version")
+        TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+        if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+          echo "Error: Package version ($PACKAGE_VERSION) doesn't match git tag ($TAG_VERSION)"
+          exit 1
+        fi
+        
+  # Publish to npm registry
+  publish-npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: [quality-check, version-check]
+    if: |
+      (github.event_name == 'release' || contains(github.ref, 'refs/tags/v')) &&
+      (needs.version-check.outputs.is-prerelease == 'false' || github.event.inputs.publish-type == 'npm')
+    
+    environment: npm-publish
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # Required for provenance
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js for npm publish
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        registry-url: ${{ env.REGISTRY_NPM }}
+        scope: '@your-scope'  # Only if using scoped packages
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Verify npm authentication
+      run: npm whoami
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        
+    - name: Publish to npm
+      run: |
+        npm publish \
+          --provenance \
+          --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        
+    - name: Notify success
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '✅ Package successfully published to npm!'
+          })
+          
+  # Publish to GitHub Packages
+  publish-github:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    needs: [quality-check, version-check]
+    if: |
+      (github.event_name == 'release' || contains(github.ref, 'refs/tags/v')) &&
+      (github.event.inputs.publish-type == 'github' || github.event.inputs.publish-type == 'both')
+    
+    permissions:
+      contents: read
+      packages: write
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js for GitHub Packages
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        registry-url: ${{ env.REGISTRY_GITHUB }}
+        scope: '@${{ github.repository_owner }}'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Configure package.json for GitHub Packages
+      run: |
+        npm pkg set repository.url=https://github.com/${{ github.repository }}.git
+        npm pkg set publishConfig.registry=${{ env.REGISTRY_GITHUB }}
+        
+    - name: Publish to GitHub Packages
+      run: npm publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+  # Dry run for testing
+  dry-run:
+    name: Dry Run Publish
+    runs-on: ubuntu-latest
+    needs: quality-check
+    if: github.event.inputs.publish-type == 'dry-run'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Dry run publish
+      run: npm publish --dry-run
+      
+    - name: Check package contents
+      run: npm pack
+      
+  # Post-publish tasks
+  post-publish:
+    name: Post Publish Tasks
+    runs-on: ubuntu-latest
+    needs: [publish-npm, publish-github]
+    if: always() && (contains(needs.*.result, 'success'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref }}
+        name: Release ${{ github.ref }}
+        body: |
+          ## What's Changed
+          Automated package release
+          
+          ### Package Details
+          - Version: ${{ needs.version-check.outputs.version }}
+          - Published to: npm Registry and GitHub Packages
+        draft: false
+        prerelease: ${{ needs.version-check.outputs.is-prerelease == 'true' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Update package documentation
+      run: |
+        # Generate docs if you have a documentation system
+        npm run docs || true
+        
+    - name: Notify team
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: Package ${{ needs.version-check.outputs.version }} published successfully!
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+## 📦 **Advanced package.json Configuration**
+
+### **Multi-Registry package.json**
+
+```json
+{
+  "name": "@your-org/your-package",
+  "version": "1.0.0",
+  "description": "Your package description",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint src/",
+    "type-check": "tsc --noEmit",
+    "prepublishOnly": "npm run test && npm run build",
+    "prepare": "npm run build",
+    "version": "npm run build && git add dist/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/your-repo.git"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "publishGithubConfig": {
+    "registry": "https://npm.pkg.github.com/",
+    "access": "restricted"
+  },
+  "keywords": [
+    "typescript",
+    "library",
+    "your-keywords"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.45.0",
+    "jest": "^29.6.0",
+    "typescript": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
+```
+
+## 🔧 **Supporting Configuration Files**
+
+### **TypeScript Configuration**
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM"],
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": "./",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}
+```
+
+### **Jest Configuration**
+
+```javascript
+// jest.config.js
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src'],
+  testMatch: [
+    '**/__tests__/**/*.+(ts|tsx|js)',
+    '**/?(*.)+(spec|test).+(ts|tsx|js)'
+  ],
+  transform: {
+    '^.+\\.(ts|tsx)$': 'ts-jest',
+  },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+};
+```
+
+## 🔐 **Environment Setup & Secrets**
+
+### **Repository Secrets Required**
+
+| Secret Name | Description | How to Get |
+|-------------|-------------|------------|
+| `NPM_TOKEN` | npm automation token | npm.com → Account → Access Tokens → Create Automation Token |
+| `SLACK_WEBHOOK_URL` | Slack notifications | Slack App → Incoming Webhooks |
+| `SONAR_TOKEN` | SonarCloud analysis | SonarCloud → Your Project → Administration → Security |
+
+### **npm Token Setup**
+
+```bash
+# Create .npmrc for local development
+echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" > .npmrc
+echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> .npmrc
+
+# Add to .gitignore
+echo ".npmrc" >> .gitignore
+```
+
+## 🎯 **Version Management Scripts**
+
+### **Automated Version Bumping**
+
+```javascript
+// scripts/version-bump.js
+const fs = require('fs');
+const { execSync } = require('child_process');
+
+const bumpType = process.argv[2] || 'patch'; // major, minor, patch
+const preid = process.argv[3] || 'beta'; // for prereleases
+
+function runCommand(command) {
+  try {
+    execSync(command, { stdio: 'inherit' });
+  } catch (error) {
+    console.error(`Error executing: ${command}`, error);
+    process.exit(1);
+  }
+}
+
+// Bump version
+runCommand(`npm version ${bumpType}${bumpType.startsWith('pre') ? ` --preid=${preid}` : ''}`);
+
+// Get new version
+const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+const newVersion = packageJson.version;
+
+console.log(`✅ Version bumped to: ${newVersion}`);
+
+// Commit and tag
+runCommand('git add package.json');
+runCommand(`git commit -m "chore: release v${newVersion}"`);
+runCommand(`git tag -a v${newVersion} -m "Version ${newVersion}"`);
+
+console.log(`🚀 Ready to publish v${newVersion}!`);
+```
+
+### **Package.json Validation Script**
+
+```javascript
+// scripts/validate-package.js
+const fs = require('fs');
+
+const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+
+// Required fields validation
+const requiredFields = ['name', 'version', 'main', 'license'];
+const missingFields = requiredFields.filter(field => !packageJson[field]);
+
+if (missingFields.length > 0) {
+  console.error(`❌ Missing required fields: ${missingFields.join(', ')}`);
+  process.exit(1);
+}
+
+// Name validation
+if (!packageJson.name.match(/^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/)) {
+  console.error('❌ Invalid package name');
+  process.exit(1);
+}
+
+// Version validation
+if (!packageJson.version.match(/^\d+\.\d+\.\d+(-[a-z0-9.-]+)?$/)) {
+  console.error('❌ Invalid version format');
+  process.exit(1);
+}
+
+// Files validation
+if (!packageJson.files || !Array.isArray(packageJson.files)) {
+  console.error('❌ Missing or invalid "files" field');
+  process.exit(1);
+}
+
+console.log('✅ package.json validation passed!');
+```
+
+## 📊 **Release Automation**
+
+### **Release Please Configuration**
+
+```json
+// release-please-config.json
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "your-package",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": ["src/version.ts"]
+    }
+  },
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+}
+```
+
+### **Automated Changelog Generation**
+
+```yaml
+# .github/workflows/release-please.yml
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/release-please-action@v3
+        with:
+          release-type: node
+          package-name: your-package
+          changelog-types: |
+            [
+              {"type": "feat", "section": "Features"},
+              {"type": "fix", "section": "Bug Fixes"},
+              {"type": "chore", "section": "Miscellaneous"},
+              {"type": "docs", "section": "Documentation"}
+            ]
+```
+
+## 🛡️ **Security Hardening**
+
+### **Security Scanning Workflow**
+
+```yaml
+# .github/workflows/security.yml
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run npm audit
+        run: npm audit --audit-level high
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          languages: javascript
+```
+
+This comprehensive workflow provides enterprise-grade npm package publishing with quality checks, multi-registry support, security scanning, and automated release management.
